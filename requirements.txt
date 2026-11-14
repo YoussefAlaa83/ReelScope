@@ -4,3 +4,5 @@ pandas
 python-dotenv
 pyodbc
 sqlalchemy
+python-dotenv
+lxml
