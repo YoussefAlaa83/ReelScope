@@ -1,0 +1,15 @@
+.env
+
+# الداتا الخام (عشان حجمها كبير ومبنرفعش داتا على GitHub)
+data/raw/*
+!data/raw/.gitkeep
+
+# ملفات بايثون المؤقتة
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+
+# ملفات الـ IDE
+.vscode/
+.idea/
