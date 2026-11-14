@@ -13,3 +13,8 @@ venv/
 # ملفات الـ IDE
 .vscode/
 .idea/
+
+
+# ملفات سجلات Airflow
+logs/
+*.log
