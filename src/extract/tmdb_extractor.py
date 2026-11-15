@@ -38,7 +38,7 @@ def fetch_all_movies():
                     movies = data.get("results", [])
                     
                     if not movies:
-                        break  # لو الصفحة فاضية نوقف اللوب
+                        break 
                         
                     for movie in movies:
                         f.write(json.dumps(movie) + "\n")
