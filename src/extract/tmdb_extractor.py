@@ -1,69 +1,86 @@
 import os
 import json
 import requests
+from datetime import datetime
 from dotenv import load_dotenv
 
 load_dotenv()
 TMDB_API_KEY = os.getenv("TMDB_API_KEY")
 
-def fetch_and_save_tmdb_movies():
+def process_tmdb_movies_pipeline():
+    today_str = datetime.now().strftime("%m/%d/%Y")
+    file_name_identifier = f"TMDB Extract - {today_str}"
+    
+    output_dir = "data/raw"
+    os.makedirs(output_dir, exist_ok=True)
+    
+    date_str_for_url = datetime.now().strftime("%m_%d_%Y")
+    
+    movie_ids = []
     base_url = "https://api.themoviedb.org/3/discover/movie"
-    headers = {
-        "accept": "application/json"
-    }
     
-    max_movies = 2000
-    movies_per_page = 20
-    max_pages = max_movies // movies_per_page
-    
-    all_movies = []
-    
-    for page in range(1, max_pages + 1):
+    for page in range(1, 101):
         params = {
             "api_key": TMDB_API_KEY,
             "language": "en-US",
             "sort_by": "popularity.desc",
             "page": page
         }
+        try:
+            res = requests.get(base_url, params=params, timeout=10)
+            if res.status_code == 200:
+                results = res.json().get("results", [])
+                for item in results:
+                    movie_ids.append({"id": item.get("id")})
+                if len(movie_ids) >= 2000:
+                    movie_ids = movie_ids[:2000]
+                    break
+        except Exception:
+            continue
+
+    ids_file_path = os.path.join(output_dir, f"tmdb_movie_ids_{date_str_for_url}.json")
+    with open(ids_file_path, "w", encoding="utf-8") as f:
+        json.dump({
+            "file_name": file_name_identifier,
+            "total_ids": len(movie_ids),
+            "items": movie_ids
+        }, f, ensure_ascii=False, indent=4)
+
+    detailed_movies = []
+    headers = {"accept": "application/json"}
+    
+    for item in movie_ids:
+        if len(detailed_movies) >= 2000:
+            break
+            
+        movie_id = item.get("id")
+        if not movie_id:
+            continue
+            
+        detail_url = f"https://api.themoviedb.org/3/movie/{movie_id}"
+        params = {
+            "api_key": TMDB_API_KEY,
+            "append_to_response": "credits"
+        }
         
         try:
-            response = requests.get(base_url, headers=headers, params=params)
-            
-            if response.status_code == 200:
-                data = response.json()
-                results = data.get("results", [])
-                
-                if not results:
-                    break
-                    
-                all_movies.extend(results)
-                
-                if len(all_movies) >= max_movies:
-                    all_movies = all_movies[:max_movies]
-                    break
-            else:
-                break
-                
+            res = requests.get(detail_url, headers=headers, params=params, timeout=10)
+            if res.status_code == 200:
+                detailed_movies.append(res.json())
         except Exception:
-            break
+            continue
 
-    file_name_identifier = "TMDB Extract - 16/11/2026"
-    
-    output_dir = "data/raw"
-    os.makedirs(output_dir, exist_ok=True)
-    
-    file_path = os.path.join(output_dir, "tmdb_moviess_11_16_2026.json")
-    
-    output_data = {
+    detailed_file_path = os.path.join(output_dir, f"tmdb_detailed_movies_{date_str_for_url}.json")
+    detailed_output_data = {
         "file_name": file_name_identifier,
-        "total_fetched": len(all_movies),
-        "movies": all_movies
+        "total_fetched": len(detailed_movies),
+        "movies": detailed_movies
     }
     
-    with open(file_path, "w", encoding="utf-8") as f:
-        json.dump(output_data, f, ensure_ascii=False, indent=4)
+    with open(detailed_file_path, "w", encoding="utf-8") as f:
+        json.dump(detailed_output_data, f, ensure_ascii=False, indent=4)
         
-    return output_data
+    return detailed_output_data
 
 if __name__ == "__main__":
-    fetch_and_save_tmdb_movies()
+    process_tmdb_movies_pipeline()
