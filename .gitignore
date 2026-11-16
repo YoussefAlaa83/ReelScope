@@ -4,6 +4,14 @@
 data/raw/*
 !data/raw/.gitkeep
 
+# الداتا المعالجة (مخرجات نادين)
+data/processed/*
+!data/processed/.gitkeep
+
+# ملفات قاعدة بيانات Airflow المحلية (لو شغلتها بره Docker)
+airflow.db
+webserver_config.py
+
 # ملفات بايثون المؤقتة
 __pycache__/
 *.py[cod]
