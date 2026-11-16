@@ -1,8 +1,8 @@
 requests
+urllib3
 beautifulsoup4
 pandas
 python-dotenv
 pyodbc
 sqlalchemy
-python-dotenv
 lxml
