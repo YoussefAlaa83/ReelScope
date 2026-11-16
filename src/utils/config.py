@@ -82,6 +82,14 @@ def _required(name: str) -> str:
     return value
 
 
+def get_tmdb_api_key() -> str:
+    """Return the validated TMDb API key without requiring unrelated DWH settings."""
+    value = _required("TMDB_API_KEY")
+    if value.lower().startswith(("your_", "replace_with_")):
+        raise ValueError("TMDB_API_KEY still contains an example placeholder")
+    return value
+
+
 def _boolean(name: str, default: bool = False) -> bool:
     value = os.getenv(name)
     if value is None:
