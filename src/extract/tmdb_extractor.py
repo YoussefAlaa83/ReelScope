@@ -18,11 +18,13 @@ def process_tmdb_movies_pipeline():
     movie_ids = []
     base_url = "https://api.themoviedb.org/3/discover/movie"
     
-    for page in range(1, 101):
+    seen_movie_ids = set()
+    for page in range(1, 151):
         params = {
             "api_key": TMDB_API_KEY,
             "language": "en-US",
             "sort_by": "popularity.desc",
+            "vote_count.gte": 200,
             "page": page
         }
         try:
@@ -30,9 +32,13 @@ def process_tmdb_movies_pipeline():
             if res.status_code == 200:
                 results = res.json().get("results", [])
                 for item in results:
-                    movie_ids.append({"id": item.get("id")})
+                    movie_id = item.get("id")
+                    if movie_id and movie_id not in seen_movie_ids:
+                        seen_movie_ids.add(movie_id)
+                        movie_ids.append({"id": movie_id})
+                        if len(movie_ids) >= 2000:
+                            break
                 if len(movie_ids) >= 2000:
-                    movie_ids = movie_ids[:2000]
                     break
         except Exception:
             continue
