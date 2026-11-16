@@ -2,15 +2,16 @@ import os
 import json
 import requests
 from datetime import datetime
-from src.utils.config import RAW_DATA_DIR, get_tmdb_api_key
+from dotenv import load_dotenv
 
-TMDB_API_KEY = get_tmdb_api_key()
+load_dotenv()
+TMDB_API_KEY = os.getenv("TMDB_API_KEY")
 
 def process_tmdb_movies_pipeline():
     today_str = datetime.now().strftime("%m/%d/%Y")
     file_name_identifier = f"TMDB Extract - {today_str}"
     
-    output_dir = RAW_DATA_DIR
+    output_dir = "data/raw"
     os.makedirs(output_dir, exist_ok=True)
     
     date_str_for_url = datetime.now().strftime("%m_%d_%Y")
@@ -47,7 +48,6 @@ def process_tmdb_movies_pipeline():
 
     detailed_movies = []
     headers = {"accept": "application/json"}
-    seen_ids = set()
     
     for item in movie_ids:
         if len(detailed_movies) >= 2000:
@@ -56,9 +56,6 @@ def process_tmdb_movies_pipeline():
         movie_id = item.get("id")
         if not movie_id:
             continue
-        if movie_id in seen_ids:
-            continue
-        seen_ids.add(movie_id)
             
         detail_url = f"https://api.themoviedb.org/3/movie/{movie_id}"
         params = {
@@ -85,9 +82,5 @@ def process_tmdb_movies_pipeline():
         
     return detailed_output_data
 
-def extract_tmdb():
-    """Airflow entry point for the TMDb extraction pipeline."""
-    return process_tmdb_movies_pipeline()
-
 if __name__ == "__main__":
-    extract_tmdb()
+    process_tmdb_movies_pipeline()
