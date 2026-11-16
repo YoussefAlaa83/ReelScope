@@ -139,5 +139,12 @@ def load_settings() -> Settings:
         db_trusted_connection=trusted,
     )
 
+def get_omdb_api_keys() -> list[str]:
+    """Load and validate comma-separated OMDb API keys from environment."""
+    raw_keys = os.getenv("OMDB_API_KEYS") or os.getenv("OMDB_API_KEY", "")
+    keys = [k.strip() for k in raw_keys.split(",") if k.strip()]
+    if not keys:
+        raise ValueError("OMDB_API_KEYS (or OMDB_API_KEY) is missing in .env")
+    return keys
 
 configure_logging()
