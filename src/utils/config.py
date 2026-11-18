@@ -18,7 +18,7 @@ from dotenv import load_dotenv
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 ENV_FILE = PROJECT_ROOT / ".env"
-load_dotenv(ENV_FILE)
+load_dotenv(ENV_FILE, override=True)
 
 DATA_DIR = PROJECT_ROOT / "data"
 RAW_DATA_DIR = DATA_DIR / "raw"
@@ -112,9 +112,10 @@ def load_settings() -> Settings:
     if tmdb_api_key.lower().startswith(("your_", "replace_with_")):
         raise ValueError("TMDB_API_KEY still contains an example placeholder")
 
-    omdb_api_keys = tuple(key.strip() for key in _required("OMDB_API_KEYS").split(",") if key.strip())
+    raw_omdb_keys = os.getenv("OMDB_API_KEYS") or os.getenv("OMDB_API_KEY", "")
+    omdb_api_keys = tuple(key.strip() for key in raw_omdb_keys.split(",") if key.strip())
     if not omdb_api_keys:
-        raise ValueError("OMDB_API_KEYS must contain at least one comma-separated API key")
+        raise ValueError("OMDB_API_KEYS (or OMDB_API_KEY) must contain at least one comma-separated API key")
     if any(key.lower().startswith(("your_", "replace_with_")) for key in omdb_api_keys):
         raise ValueError("OMDB_API_KEYS contains an example placeholder")
 
