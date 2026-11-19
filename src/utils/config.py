@@ -20,6 +20,17 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 ENV_FILE = PROJECT_ROOT / ".env"
 load_dotenv(ENV_FILE, override=True)
 
+# Extractor settings are parsed once here so every entry point uses the same values.
+TMDB_API_KEY = os.getenv("TMDB_API_KEY", "").strip()
+TMDB_ACCESS_TOKEN = os.getenv("TMDB_ACCESS_TOKEN", "").strip()
+TMDB_MAX_MOVIES = int(os.getenv("TMDB_MAX_MOVIES", "2000"))
+OMDB_API_KEYS = [
+    key.strip()
+    for key in (os.getenv("OMDB_API_KEYS") or os.getenv("OMDB_API_KEY", "")).split(",")
+    if key.strip()
+]
+REQUEST_TIMEOUT = int(os.getenv("REQUEST_TIMEOUT", "15"))
+
 DATA_DIR = PROJECT_ROOT / "data"
 RAW_DATA_DIR = DATA_DIR / "raw"
 RAW_DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -84,7 +95,9 @@ def _required(name: str) -> str:
 
 def get_tmdb_api_key() -> str:
     """Return the validated TMDb API key without requiring unrelated DWH settings."""
-    value = _required("TMDB_API_KEY")
+    value = TMDB_API_KEY
+    if not value:
+        raise ValueError("Missing required environment variable: TMDB_API_KEY")
     if value.lower().startswith(("your_", "replace_with_")):
         raise ValueError("TMDB_API_KEY still contains an example placeholder")
     return value
@@ -112,8 +125,7 @@ def load_settings() -> Settings:
     if tmdb_api_key.lower().startswith(("your_", "replace_with_")):
         raise ValueError("TMDB_API_KEY still contains an example placeholder")
 
-    raw_omdb_keys = os.getenv("OMDB_API_KEYS") or os.getenv("OMDB_API_KEY", "")
-    omdb_api_keys = tuple(key.strip() for key in raw_omdb_keys.split(",") if key.strip())
+    omdb_api_keys = tuple(OMDB_API_KEYS)
     if not omdb_api_keys:
         raise ValueError("OMDB_API_KEYS (or OMDB_API_KEY) must contain at least one comma-separated API key")
     if any(key.lower().startswith(("your_", "replace_with_")) for key in omdb_api_keys):
@@ -142,8 +154,7 @@ def load_settings() -> Settings:
 
 def get_omdb_api_keys() -> list[str]:
     """Load and validate comma-separated OMDb API keys from environment."""
-    raw_keys = os.getenv("OMDB_API_KEYS") or os.getenv("OMDB_API_KEY", "")
-    keys = [k.strip() for k in raw_keys.split(",") if k.strip()]
+    keys = list(OMDB_API_KEYS)
     if not keys:
         raise ValueError("OMDB_API_KEYS (or OMDB_API_KEY) is missing in .env")
     return keys
