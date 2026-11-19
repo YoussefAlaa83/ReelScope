@@ -10,14 +10,31 @@ from pathlib import Path
 from typing import Any
 
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
-from src.utils.config import RAW_DATA_DIR, get_omdb_api_keys
+from src.utils.config import OMDB_API_KEYS, RAW_DATA_DIR, REQUEST_TIMEOUT
 
 
 LOGGER = logging.getLogger(__name__)
 OMDB_URL = "https://www.omdbapi.com/"
 CHECKPOINT_INTERVAL = 100
 REQUEST_DELAY_SECONDS = 0.2
+
+
+def _create_session() -> requests.Session:
+    """Create an OMDb session with retries for transient HTTP failures."""
+    retry = Retry(
+        total=3,
+        backoff_factor=2,
+        status_forcelist=[429, 500, 502, 503, 504],
+        allowed_methods=["GET"],
+    )
+    session = requests.Session()
+    adapter = HTTPAdapter(max_retries=retry)
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+    return session
 
 
 def _latest_tmdb_details_file() -> Path:
@@ -134,9 +151,12 @@ def process_omdb_movies_pipeline() -> dict[str, Any]:
         if isinstance(movie.get("imdbID"), str)
     }
 
-    api_keys = get_omdb_api_keys()
+    api_keys = list(OMDB_API_KEYS)
+    if not api_keys:
+        raise ValueError("OMDB_API_KEYS (or OMDB_API_KEY) is missing in .env")
     active_key_index = 0
     fetched_since_checkpoint = 0
+    session = _create_session()
 
     LOGGER.info(
         "Starting OMDb extraction",
@@ -152,10 +172,10 @@ def process_omdb_movies_pipeline() -> dict[str, Any]:
             params = {"i": imdb_id, "apikey": api_keys[active_key_index]}
 
             try:
-                response = requests.get(OMDB_URL, params=params, timeout=10)
+                response = session.get(OMDB_URL, params=params, timeout=REQUEST_TIMEOUT)
             except requests.RequestException:
                 LOGGER.exception(
-                    "OMDb request failed; skipping IMDb ID",
+                    "OMDb transient request failure; IMDb ID remains eligible for a later run",
                     extra={"event": "omdb_request_failed", "source": "omdb"},
                 )
                 break
