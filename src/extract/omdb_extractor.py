@@ -248,7 +248,9 @@ def process_omdb_movies_pipeline() -> dict[str, Any]:
 
             if fetched_since_checkpoint >= CHECKPOINT_INTERVAL:
                 _save_checkpoint(output_path, movies)
+                _save_not_found_ids(not_found_path, not_found_ids)
                 upload_file_to_adls(output_path, f"raw/omdb/{output_path.name}")
+                upload_file_to_adls(not_found_path, f"raw/omdb/{not_found_path.name}")
                 fetched_since_checkpoint = 0
 
             break

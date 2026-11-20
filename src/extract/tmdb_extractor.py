@@ -10,6 +10,7 @@ from src.utils.config import RAW_DATA_DIR, REQUEST_TIMEOUT, TMDB_API_KEY, TMDB_M
 from src.utils.azure_storage import list_blobs, download_blob_to_local, upload_file_to_adls
 
 LOGGER = logging.getLogger(__name__)
+CHECKPOINT_INTERVAL = 25
 
 
 def _latest_checkpoint(prefix, pattern):
@@ -124,6 +125,7 @@ def process_tmdb_movies_pipeline():
     upload_file_to_adls(ids_file_path, f"raw/tmdb/{os.path.basename(ids_file_path)}")
 
     headers = {"accept": "application/json"}
+    fetched_since_checkpoint = 0
     for item in movie_ids:
         if len(detailed_movies) >= max_movies:
             break
@@ -140,6 +142,17 @@ def process_tmdb_movies_pipeline():
             res.raise_for_status()
             detailed_movies.append(res.json())
             saved_detail_ids.add(movie_id)
+            fetched_since_checkpoint += 1
+            if fetched_since_checkpoint >= CHECKPOINT_INTERVAL:
+                checkpoint_data = {
+                    "file_name": file_name_identifier,
+                    "total_fetched": len(detailed_movies),
+                    "movies": detailed_movies
+                }
+                with open(detailed_file_path, "w", encoding="utf-8") as f:
+                    json.dump(checkpoint_data, f, ensure_ascii=False, indent=4)
+                upload_file_to_adls(detailed_file_path, f"raw/tmdb/{os.path.basename(detailed_file_path)}")
+                fetched_since_checkpoint = 0
         except (requests.RequestException, ValueError) as exc:
             LOGGER.warning("TMDb detail request failed for movie %s: %s", movie_id, exc)
 
