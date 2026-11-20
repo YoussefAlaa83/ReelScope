@@ -5,7 +5,6 @@ from __future__ import annotations
 import glob
 import json
 import logging
-import os
 import random
 import re
 import time
@@ -20,6 +19,7 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 from src.utils.config import RAW_DATA_DIR, REQUEST_TIMEOUT
+from src.utils.azure_storage import list_blobs, download_blob_to_local, upload_file_to_adls
 
 LOGGER = logging.getLogger(__name__)
 BASE_URL = "https://www.boxofficemojo.com"
@@ -55,9 +55,14 @@ def _create_session() -> requests.Session:
 def _latest_tmdb_details_file() -> Path:
     """Return the newest detailed TMDb input file in the configured raw folder."""
     paths = [Path(p) for p in glob.glob(str(Path(RAW_DATA_DIR) / "tmdb_detailed_movies_*.json"))]
-    if not paths:
-        raise FileNotFoundError(f"No TMDb detailed movies file found in {RAW_DATA_DIR}")
-    return max(paths, key=lambda path: path.stat().st_mtime)
+    if paths:
+        return max(paths, key=lambda path: path.stat().st_mtime)
+    blobs = sorted(blob.name for blob in list_blobs("raw/tmdb/tmdb_detailed_movies_") if blob.name.endswith(".json"))
+    if blobs:
+        restored = Path(RAW_DATA_DIR) / Path(blobs[-1]).name
+        if download_blob_to_local(blobs[-1], restored):
+            return restored
+    raise FileNotFoundError(f"No TMDb detailed movies file found locally or in Azure Bronze ({RAW_DATA_DIR})")
 
 
 def _load_imdb_ids(path: Path) -> list[str]:
@@ -82,9 +87,24 @@ def _output_paths() -> tuple[Path, Path]:
     """Reuse newest output pair irrespective of today's date, for midnight-safe resume."""
     folder = Path(RAW_DATA_DIR)
     files = [Path(p) for p in glob.glob(str(folder / "bom_movies_*.json"))]
-    output = max(files, key=lambda path: path.stat().st_mtime) if files else folder / f"bom_movies_{datetime.now():%m_%d_%Y}.json"
+    if files:
+        output = max(files, key=lambda path: path.stat().st_mtime)
+    else:
+        blobs = list_blobs("raw/bom/bom_movies_")
+        matching = sorted((blob.name for blob in blobs if blob.name.endswith(".json")), reverse=True)
+        if matching:
+            blob_name = matching[0]
+            output = folder / Path(blob_name).name
+            download_blob_to_local(blob_name, output)
+        else:
+            output = folder / f"bom_movies_{datetime.now():%m_%d_%Y}.json"
     date_suffix = output.stem.removeprefix("bom_movies_")
-    return output, folder / f"bom_skipped_ids_{date_suffix}.json"
+    skipped = folder / f"bom_skipped_ids_{date_suffix}.json"
+    if not skipped.exists():
+        for blob in list_blobs(f"raw/bom/bom_skipped_ids_{date_suffix}.json"):
+            download_blob_to_local(blob.name, skipped)
+            break
+    return output, skipped
 
 
 def _read_json(path: Path, key: str) -> list[Any]:
@@ -240,28 +260,9 @@ def _scrape_movie(session: requests.Session, imdb_id: str) -> tuple[str, dict[st
 
 
 def _upload_to_azure(paths: tuple[Path, Path]) -> None:
-    """Best-effort upload of final raw files when Azure configuration and SDK exist."""
-    connection_string = os.getenv("AZURE_STORAGE_CONNECTION_STRING", "").strip()
-    if not connection_string:
-        return
-    try:
-        from azure.storage.blob import BlobServiceClient  # type: ignore[import-not-found]
-    except ImportError:
-        LOGGER.warning("Azure connection configured but azure-storage-blob is not installed", extra={"event": "bom_azure_sdk_missing", "source": "bom"})
-        return
-    container = os.getenv("AZURE_RAW_CONTAINER", "").strip()
-    if not container:
-        LOGGER.warning("Azure connection configured but AZURE_RAW_CONTAINER is empty", extra={"event": "bom_azure_container_missing", "source": "bom"})
-        return
-    try:
-        service = BlobServiceClient.from_connection_string(connection_string)
-        client = service.get_container_client(container)
-        for path in paths:
-            with path.open("rb") as file:
-                client.upload_blob(f"raw/bom/{path.name}", file, overwrite=True)
-        LOGGER.info("Uploaded BOM raw files to Azure", extra={"event": "bom_azure_upload_completed", "source": "bom"})
-    except Exception:
-        LOGGER.exception("Azure BOM upload failed; local extraction remains available", extra={"event": "bom_azure_upload_failed", "source": "bom"})
+    """Best-effort upload of BOM raw files through the shared Azure helper."""
+    for path in paths:
+        upload_file_to_adls(path, f"raw/bom/{path.name}")
 
 
 def extract_bom(limit: int | None = None) -> dict[str, Any]:
@@ -297,6 +298,7 @@ def extract_bom(limit: int | None = None) -> dict[str, Any]:
             since_checkpoint += 1
             if since_checkpoint >= CHECKPOINT_INTERVAL:
                 _save(output_path, skipped_path, movies, skipped)
+                _upload_to_azure((output_path, skipped_path))
                 since_checkpoint = 0
     _save(output_path, skipped_path, movies, skipped)
     _upload_to_azure((output_path, skipped_path))

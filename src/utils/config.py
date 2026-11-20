@@ -30,6 +30,10 @@ OMDB_API_KEYS = [
     if key.strip()
 ]
 REQUEST_TIMEOUT = int(os.getenv("REQUEST_TIMEOUT", "15"))
+AZURE_STORAGE_CONNECTION_STRING = os.getenv("AZURE_STORAGE_CONNECTION_STRING", "").strip()
+AZURE_CONTAINER_BRONZE = os.getenv("AZURE_CONTAINER_BRONZE", "bronze").strip() or "bronze"
+AZURE_CONTAINER_SILVER = os.getenv("AZURE_CONTAINER_SILVER", "silver").strip() or "silver"
+AZURE_CONTAINER_GOLD = os.getenv("AZURE_CONTAINER_GOLD", "gold").strip() or "gold"
 
 DATA_DIR = PROJECT_ROOT / "data"
 RAW_DATA_DIR = DATA_DIR / "raw"

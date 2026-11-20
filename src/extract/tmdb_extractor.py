@@ -1,13 +1,28 @@
 import os
 import json
+import glob
 import logging
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 from datetime import datetime
 from src.utils.config import RAW_DATA_DIR, REQUEST_TIMEOUT, TMDB_API_KEY, TMDB_MAX_MOVIES
+from src.utils.azure_storage import list_blobs, download_blob_to_local, upload_file_to_adls
 
 LOGGER = logging.getLogger(__name__)
+
+
+def _latest_checkpoint(prefix, pattern):
+    """Prefer a local checkpoint; otherwise restore the latest Bronze copy."""
+    local = sorted(glob.glob(os.path.join(str(RAW_DATA_DIR), pattern)), key=os.path.getmtime)
+    if local:
+        return local[-1]
+    blobs = sorted(blob.name for blob in list_blobs(prefix) if blob.name.endswith(".json"))
+    if blobs:
+        local_path = os.path.join(str(RAW_DATA_DIR), os.path.basename(blobs[-1]))
+        if download_blob_to_local(blobs[-1], local_path):
+            return local_path
+    return None
 
 
 def _create_session():
@@ -37,8 +52,8 @@ def process_tmdb_movies_pipeline():
 
     movie_ids = []
     base_url = "https://api.themoviedb.org/3/discover/movie"
-    ids_file_path = os.path.join(output_dir, f"tmdb_movie_ids_{date_str_for_url}.json")
-    detailed_file_path = os.path.join(output_dir, f"tmdb_detailed_movies_{date_str_for_url}.json")
+    ids_file_path = _latest_checkpoint("raw/tmdb/tmdb_movie_ids_", "tmdb_movie_ids_*.json") or os.path.join(output_dir, f"tmdb_movie_ids_{date_str_for_url}.json")
+    detailed_file_path = _latest_checkpoint("raw/tmdb/tmdb_detailed_movies_", "tmdb_detailed_movies_*.json") or os.path.join(output_dir, f"tmdb_detailed_movies_{date_str_for_url}.json")
 
     # Resume the current run's checkpoints and avoid requesting saved details again.
     seen_ids = set()
@@ -106,6 +121,7 @@ def process_tmdb_movies_pipeline():
             "total_ids": len(movie_ids),
             "items": movie_ids
         }, f, ensure_ascii=False, indent=4)
+    upload_file_to_adls(ids_file_path, f"raw/tmdb/{os.path.basename(ids_file_path)}")
 
     headers = {"accept": "application/json"}
     for item in movie_ids:
@@ -135,6 +151,7 @@ def process_tmdb_movies_pipeline():
 
     with open(detailed_file_path, "w", encoding="utf-8") as f:
         json.dump(detailed_output_data, f, ensure_ascii=False, indent=4)
+    upload_file_to_adls(detailed_file_path, f"raw/tmdb/{os.path.basename(detailed_file_path)}")
 
     return detailed_output_data
 
