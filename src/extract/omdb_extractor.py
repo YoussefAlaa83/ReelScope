@@ -14,6 +14,7 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 from src.utils.config import OMDB_API_KEYS, RAW_DATA_DIR, REQUEST_TIMEOUT
+from src.utils.azure_storage import list_blobs, download_blob_to_local, upload_file_to_adls
 
 
 LOGGER = logging.getLogger(__name__)
@@ -41,11 +42,14 @@ def _latest_tmdb_details_file() -> Path:
     """Find the most recently modified TMDb detailed movies JSON file."""
     pattern = os.path.join(str(RAW_DATA_DIR), "tmdb_detailed_movies_*.json")
     files = glob.glob(pattern)
-    if not files:
-        raise FileNotFoundError(
-            f"No TMDb detailed movies file found in {RAW_DATA_DIR}"
-        )
-    return Path(max(files, key=os.path.getmtime))
+    if files:
+        return Path(max(files, key=os.path.getmtime))
+    blobs = sorted(blob.name for blob in list_blobs("raw/tmdb/tmdb_detailed_movies_") if blob.name.endswith(".json"))
+    if blobs:
+        local_path = Path(RAW_DATA_DIR) / Path(blobs[-1]).name
+        if download_blob_to_local(blobs[-1], local_path):
+            return local_path
+    raise FileNotFoundError(f"No TMDb detailed movies file found locally or in Azure Bronze ({RAW_DATA_DIR})")
 
 
 def _load_imdb_ids(path: Path) -> list[str]:
@@ -133,6 +137,12 @@ def process_omdb_movies_pipeline() -> dict[str, Any]:
     output_dir.mkdir(parents=True, exist_ok=True)
     checkpoint_pattern = os.path.join(str(output_dir), "omdb_movies_*.json")
     checkpoint_files = [Path(path) for path in glob.glob(checkpoint_pattern)]
+    if not checkpoint_files:
+        blobs = sorted(blob.name for blob in list_blobs("raw/omdb/omdb_movies_") if blob.name.endswith(".json"))
+        if blobs:
+            restored = output_dir / Path(blobs[-1]).name
+            if download_blob_to_local(blobs[-1], restored):
+                checkpoint_files = [restored]
     output_path = (
         max(checkpoint_files, key=os.path.getmtime)
         if checkpoint_files
@@ -143,6 +153,10 @@ def process_omdb_movies_pipeline() -> dict[str, Any]:
     imdb_ids = _load_imdb_ids(source_path)
     movies = _load_checkpoint(output_path)
     not_found_path = _not_found_path(output_path)
+    if not not_found_path.exists():
+        sidecar_name = f"raw/omdb/{not_found_path.name}"
+        if any(blob.name == sidecar_name for blob in list_blobs(sidecar_name)):
+            download_blob_to_local(sidecar_name, not_found_path)
     not_found_ids = _load_not_found_ids(not_found_path)
 
     fetched_ids = {
@@ -215,6 +229,7 @@ def process_omdb_movies_pipeline() -> dict[str, Any]:
                 if error == "Movie not found!":
                     not_found_ids.add(imdb_id)
                     _save_not_found_ids(not_found_path, not_found_ids)
+                    upload_file_to_adls(not_found_path, f"raw/omdb/{not_found_path.name}")
                     LOGGER.warning(
                         "OMDb movie not found; skipping IMDb ID",
                         extra={"event": "omdb_movie_not_found", "source": "omdb"},
@@ -233,6 +248,7 @@ def process_omdb_movies_pipeline() -> dict[str, Any]:
 
             if fetched_since_checkpoint >= CHECKPOINT_INTERVAL:
                 _save_checkpoint(output_path, movies)
+                upload_file_to_adls(output_path, f"raw/omdb/{output_path.name}")
                 fetched_since_checkpoint = 0
 
             break
@@ -240,6 +256,8 @@ def process_omdb_movies_pipeline() -> dict[str, Any]:
         else:
             _save_checkpoint(output_path, movies)
             _save_not_found_ids(not_found_path, not_found_ids)
+            upload_file_to_adls(output_path, f"raw/omdb/{output_path.name}")
+            upload_file_to_adls(not_found_path, f"raw/omdb/{not_found_path.name}")
             LOGGER.error(
                 "All OMDb API keys are exhausted; progress saved. "
                 "Rerun the extractor after replenishing the keys.",
@@ -254,6 +272,8 @@ def process_omdb_movies_pipeline() -> dict[str, Any]:
 
     _save_checkpoint(output_path, movies)
     _save_not_found_ids(not_found_path, not_found_ids)
+    upload_file_to_adls(output_path, f"raw/omdb/{output_path.name}")
+    upload_file_to_adls(not_found_path, f"raw/omdb/{not_found_path.name}")
     LOGGER.info(
         "OMDb extraction completed",
         extra={"event": "omdb_extraction_completed", "source": "omdb"},
