@@ -7,3 +7,4 @@ azure-storage-blob
 pyodbc
 sqlalchemy
 lxml
+pyarrow

@@ -57,6 +57,23 @@ def upload_file_to_adls(local_path: str | Path, blob_name: str | None = None,
         return False
 
 
+def upload_bytes_to_adls(data: bytes, blob_name: str,
+                         container: str | None = None,
+                         overwrite: bool = True) -> bool:
+    """Upload an in-memory payload to Azure Blob Storage."""
+    service = _service_client()
+    if service is None:
+        return False
+    try:
+        client = service.get_blob_client(container=_container_name(container), blob=blob_name)
+        client.upload_blob(data, overwrite=overwrite)
+        LOGGER.info("Uploaded in-memory payload %s to Azure container %s", blob_name, _container_name(container), extra={"event": "azure_upload_completed"})
+        return True
+    except Exception:
+        LOGGER.exception("Azure in-memory upload failed for %s", blob_name, extra={"event": "azure_upload_failed"})
+        return False
+
+
 def download_blob_to_local(blob_name: str, local_path: str | Path,
                            container: str | None = None) -> bool:
     """Download a blob to a local path; return False if unavailable or failed."""
